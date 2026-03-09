@@ -31,3 +31,7 @@ Ejemplo de ramas:
 - No se permiten cambios directos en la rama principal.
 
 Este flujo garantiza un desarrollo seguro, organizado y colaborativo para el proyecto.
+
+## Prueba de Pull Request
+
+Este cambio se realizó para demostrar el uso de Pull Requests en el repositorio del proyecto.A
