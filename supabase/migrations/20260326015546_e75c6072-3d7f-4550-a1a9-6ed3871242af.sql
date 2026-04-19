@@ -1,1 +1,0 @@
-ALTER TABLE public.usuarios ADD COLUMN IF NOT EXISTS tutorial_visto BOOLEAN NOT NULL DEFAULT false;
