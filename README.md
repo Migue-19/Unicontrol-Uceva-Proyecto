@@ -1,17 +1,38 @@
-# asincronia_flutter
+Segundo-Plano-Flutter
 
-A new Flutter project.
+- Estudiantes:
+Miguel Angel Ruiz Urdemendiz
+Jolmer Alexander Viedma Agudelo
 
-## Getting Started
+- ¿Cuándo usar cada herramienta?
 
-This project is a starting point for a Flutter application.
+| Herramienta | Cuándo usarla |
+|---|---|
+| `Future` | Operación que entregará un valor en el futuro (HTTP, DB, I/O) |
+| `async/await` | Escribir código asíncrono de forma legible y secuencial |
+| `Timer` | Ejecutar código después de un retraso o repetidamente cada N ms |
+| `Isolate` | Tareas CPU-bound que bloquearían el hilo principal (UI thread) |
 
-A few resources to get you started if this is your first Flutter project:
+---
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+1. Home
+Menú de navegación a las tres demostraciones.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+2. Future / async / await
+- El usuario presiona **Consultar datos**.
+- La UI muestra **Cargando...** mientras espera.
+- Tras 3 segundos se muestra **Éxito** (con los datos) o **Error** (20% aleatorio).
+- Consola imprime: antes del fetch → durante → después.
+
+3. Cronómetro — Timer
+- **Iniciar**: arranca `Timer.periodic` cada 100 ms.
+- **Pausar**: llama `_timer?.cancel()`.
+- **Reanudar**: re-crea el timer desde el tiempo actual.
+- **Reiniciar**: cancela y vuelve a 00:00.00.
+- Al salir de la vista (`dispose`) se cancela el timer automáticamente.
+
+4. Isolate — Tarea Pesada
+- El usuario presiona el botón.
+- Se lanza `Isolate.spawn` con 500 millones de iteraciones.
+- La UI permanece responsiva (puede navegar, el spinner gira).
+- El resultado (suma + tiempo) llega por `ReceivePort` y se muestra en pantalla.
