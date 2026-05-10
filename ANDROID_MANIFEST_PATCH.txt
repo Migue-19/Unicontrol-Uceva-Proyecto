@@ -1,0 +1,65 @@
+# android/app/src/main/AndroidManifest.xml — PATCH
+#
+# Agrega los permisos e configuración para flutter_secure_storage y http.
+# Fusiona con el AndroidManifest.xml existente del proyecto.
+#
+# Cambios necesarios:
+#   1. Permiso de Internet (probablemente ya existe, verificar)
+#   2. android:usesCleartextTraffic="true" SOLO para debug (no producción)
+#   3. No se requieren cambios especiales para flutter_secure_storage en Android
+#      ya que usa EncryptedSharedPreferences automáticamente.
+
+# ── Agregar dentro de <manifest> ──────────────────────────────────────────
+# <uses-permission android:name="android.permission.INTERNET"/>
+
+# ── El <application> debe incluir (solo en debug/dev) ─────────────────────
+# android:usesCleartextTraffic="true"
+# (En producción el backend usa HTTPS, eliminar este atributo)
+
+# ── Ejemplo de manifest completo actualizado ──────────────────────────────
+
+MANIFEST_CONTENT = """
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Permiso de red para login JWT y llamadas al backend -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <application
+        android:label="unicontrol_app"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+
+        <!-- flutter_secure_storage: no requiere configuración adicional -->
+        <!-- usa EncryptedSharedPreferences en Android 6.0+ automáticamente -->
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"/>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2"/>
+    </application>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="https"/>
+        </intent>
+    </queries>
+</manifest>
+"""
