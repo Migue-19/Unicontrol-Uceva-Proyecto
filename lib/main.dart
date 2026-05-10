@@ -1,22 +1,51 @@
 import 'package:flutter/material.dart';
-import 'routes/app_routes.dart';
-import 'themes/app_theme.dart';
+import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:unicontrol_app/routes/app_router.dart';
+import 'package:unicontrol_app/services/auth_service.dart';
+import 'package:unicontrol_app/services/jwt_auth_service.dart';
+import 'package:unicontrol_app/services/supabase_service.dart';
+import 'package:unicontrol_app/themes/app_theme.dart';
 
-void main() {
-  runApp(const MyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Supabase.initialize(
+    url: SupabaseService.supabaseUrl,
+    anonKey: SupabaseService.supabaseAnonKey,
+  );
+  runApp(const UniControlApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class UniControlApp extends StatelessWidget {
+  const UniControlApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Taller Segundo Plano',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      initialRoute: AppRoutes.home,
-      routes: AppRoutes.routes,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthService>(
+          create: (_) => AuthService(),
+          lazy: true,
+        ),
+        ChangeNotifierProvider<JwtAuthService>(
+          create: (_) => JwtAuthService(),
+        ),
+      ],
+      child: Consumer<JwtAuthService>(
+        builder: (context, jwtAuthService, _) {
+          final authService = context.read<AuthService>();
+          final router = AppRouter(
+            authService: authService,
+            jwtAuthService: jwtAuthService,
+          ).router;
+          return MaterialApp.router(
+            title: 'UniControl UCEVA',
+            theme: AppTheme.lightTheme,
+            debugShowCheckedModeBanner: false,
+            routerConfig: router,
+          );
+        },
+      ),
     );
   }
 }
