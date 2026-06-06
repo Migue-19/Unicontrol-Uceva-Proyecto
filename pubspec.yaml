@@ -9,6 +9,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.5
+  image: ^4.1.7
   supabase_flutter: ^2.8.0
   google_sign_in: ^6.2.1
   google_fonts: ^6.2.1
@@ -17,6 +18,11 @@ dependencies:
   shimmer: ^3.0.0
   cached_network_image: ^3.3.1
   flutter_animate: ^4.5.0
+  http: ^1.2.0
+  flutter_markdown: ^0.7.0
+  webcrypto: ^0.5.6
+  crypto: ^3.0.3
+  signature: ^5.4.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -25,3 +31,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/firma_coordinador.png
+    - assets/firma_reference_features.json

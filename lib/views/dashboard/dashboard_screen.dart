@@ -26,10 +26,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<int> _loadEnrollmentCount(String? userId) async {
-    if (userId == null) {
-      return 0;
-    }
-    final enrollments = await _enrollmentService.fetchEnrollments(userId);
+    if (userId == null) return 0;
+    final enrollments = await _enrollmentService.fetchActiveLoadEnrollments(userId);
     return enrollments.length;
   }
 
@@ -89,10 +87,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           return RefreshIndicator(
             onRefresh: () async {
               final userId = context.read<AuthService>().user?.id;
-              setState(() {
-                _enrollmentsCountFuture = _loadEnrollmentCount(userId);
-              });
-              await _enrollmentsCountFuture;
+              final f = _loadEnrollmentCount(userId);
+              void upd() { _enrollmentsCountFuture = f; }
+              setState(upd);
+              await f;
             },
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),

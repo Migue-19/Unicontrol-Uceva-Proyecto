@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:unicontrol_app/models/usuario_model.dart';
+import 'package:unicontrol_app/services/aes_service.dart';
+import 'package:unicontrol_app/services/rsa_service.dart';
 import 'package:unicontrol_app/services/supabase_service.dart';
 
 enum AuthFlowStatus {
@@ -38,10 +40,12 @@ class AuthService extends ChangeNotifier {
   }
 
   final SupabaseClient _client = SupabaseService.client;
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: ['email', 'profile'],
-    serverClientId: SupabaseService.googleWebClientId,
-  );
+  final GoogleSignIn _googleSignIn = kIsWeb
+      ? GoogleSignIn(scopes: ['email', 'profile'])
+      : GoogleSignIn(
+          scopes: ['email', 'profile'],
+          serverClientId: SupabaseService.googleWebClientId,
+        );
 
   User? user;
   String? role;
@@ -50,7 +54,10 @@ class AuthService extends ChangeNotifier {
   late final StreamSubscription<AuthState> _authSubscription;
 
   bool get isAuthenticated => user != null;
-  bool get isAdmin => role == 'admin';
+  static const _rolesAdmin = {'superadmin', 'admin'};
+
+  bool get isAdmin => _rolesAdmin.contains(role);
+  bool get isSuperAdmin => role == 'superadmin';
   bool get hasCompletedProfile =>
       profile?.codigoEstudiantil?.isNotEmpty == true &&
       profile?.programaId?.isNotEmpty == true &&
@@ -84,7 +91,7 @@ class AuthService extends ChangeNotifier {
           .maybeSingle();
 
       if (userById != null) {
-        profile = UsuarioModel.fromJson(userById);
+        profile = await UsuarioModel.fromJsonDecrypted(userById);
       } else if (user!.email != null) {
         final userByEmail = await _client
             .from('usuarios')
@@ -92,7 +99,8 @@ class AuthService extends ChangeNotifier {
             .eq('email', user!.email!)
             .maybeSingle();
         profile = userByEmail != null
-            ? UsuarioModel.fromJson({...userByEmail, 'id': userByEmail['id'] ?? user!.id})
+            ? await UsuarioModel.fromJsonDecrypted(
+                {...userByEmail, 'id': userByEmail['id'] ?? user!.id})
             : null;
       } else {
         profile = null;
@@ -141,6 +149,9 @@ class AuthService extends ChangeNotifier {
           .signInWithPassword(email: email, password: password);
       user = response.user;
       await _loadProfile(silent: true);
+      if (user != null) {
+        await UniControlMessaging.initSessionKey(userId: user!.id);
+      }
       notifyListeners();
       return null;
     } on AuthException catch (e) {
@@ -174,17 +185,35 @@ class AuthService extends ChangeNotifier {
       user = response.user;
 
       if (user != null) {
+        // Cifrar nombre y código con RSA-OAEP-SHA256 antes de guardar en BD
+        final nombreCifrado = await UniControlRsa.encryptField(nombre);
+        final codigoCifrado = codigoEstudiantil != null
+            ? await UniControlRsa.encryptField(codigoEstudiantil)
+            : null;
+
         await _client.from('usuarios').upsert({
           'id': user!.id,
-          'nombre': nombre,
-          'codigo_estudiantil': codigoEstudiantil,
+          'nombre': nombreCifrado,
+          'codigo_estudiantil': codigoCifrado,
           'programa_id': programaId,
           'semestre_actual': semestre ?? 1,
         });
+
+        // Diagnóstico en consola
+        UniControlRsa.printDiagnosticTable(
+          campo: 'nombre',
+          valorOriginal: nombre,
+          valorCifrado: nombreCifrado,
+          valorDescifrado: await UniControlRsa.decryptField(nombreCifrado),
+        );
+
         await _client.from('user_roles').upsert({
           'user_id': user!.id,
           'role': 'estudiante',
         });
+
+        // Inicializar clave AES de sesión
+        await UniControlMessaging.initSessionKey(userId: user!.id);
       }
 
       await _loadProfile(silent: true);
@@ -249,7 +278,7 @@ class AuthService extends ChangeNotifier {
           .maybeSingle();
 
       if (existingUser != null) {
-        profile = UsuarioModel.fromJson(existingUser);
+        profile = await UsuarioModel.fromJsonDecrypted(existingUser);
         await _ensureBaseRole();
         await _loadProfile(silent: true);
         _pendingGoogleProfile = null;
@@ -294,13 +323,28 @@ class AuthService extends ChangeNotifier {
         programaId = await _resolverProgramaId(carreraId);
       }
 
+      // Cifrar nombre y código con RSA antes de guardar
+      final nombreCifrado = await UniControlRsa.encryptField(pendingProfile.nombre);
+      final codigoCifrado = await UniControlRsa.encryptField(codigoEstudiantil);
+
       await _client.from('usuarios').upsert({
         'id': currentUser.id,
-        'nombre': pendingProfile.nombre,
-        'codigo_estudiantil': codigoEstudiantil,
+        'nombre': nombreCifrado,
+        'codigo_estudiantil': codigoCifrado,
         'programa_id': programaId,
         'semestre_actual': semestre,
       });
+
+      // Diagnóstico en consola
+      UniControlRsa.printDiagnosticTable(
+        campo: 'nombre (Google)',
+        valorOriginal: pendingProfile.nombre,
+        valorCifrado: nombreCifrado,
+        valorDescifrado: await UniControlRsa.decryptField(nombreCifrado),
+      );
+
+      // Inicializar clave AES de sesión
+      await UniControlMessaging.initSessionKey(userId: currentUser.id);
 
       await _ensureBaseRole();
       _pendingGoogleProfile = null;
@@ -329,6 +373,7 @@ class AuthService extends ChangeNotifier {
   Future<void> logout() async {
     try { await _googleSignIn.signOut(); } catch (_) {}
     try { await _client.auth.signOut(); } catch (_) {}
+    UniControlMessaging.clearSession(); // ← limpiar clave AES
     user = null;
     role = null;
     profile = null;

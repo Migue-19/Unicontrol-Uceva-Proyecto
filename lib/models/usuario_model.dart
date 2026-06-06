@@ -1,3 +1,5 @@
+import 'package:unicontrol_app/services/rsa_service.dart';
+
 class UsuarioModel {
   final String id;
   final String? email;
@@ -21,6 +23,7 @@ class UsuarioModel {
     this.tutorialVisto = false,
   });
 
+  /// Construye desde JSON con campos en texto plano (ya descifrados).
   factory UsuarioModel.fromJson(Map<String, dynamic> json) {
     final programaJson = json['programas'] as Map<String, dynamic>?;
     final facultadJson = programaJson?['facultades'] as Map<String, dynamic>?;
@@ -29,6 +32,36 @@ class UsuarioModel {
       email: json['email'] as String?,
       nombre: json['nombre'] as String? ?? '',
       codigoEstudiantil: json['codigo_estudiantil'] as String?,
+      programaId: json['programa_id'] as String?,
+      programaNombre: programaJson?['nombre'] as String?,
+      facultadNombre: facultadJson?['nombre'] as String?,
+      semestreActual: json['semestre_actual'] != null
+          ? (json['semestre_actual'] as num).toInt()
+          : 1,
+      tutorialVisto: json['tutorial_visto'] as bool? ?? false,
+    );
+  }
+
+  /// Construye desde JSON descifrando nombre y código con RSA.
+  /// Úsalo cuando los datos vienen directamente de Supabase cifrados.
+  static Future<UsuarioModel> fromJsonDecrypted(
+      Map<String, dynamic> json) async {
+    final programaJson = json['programas'] as Map<String, dynamic>?;
+    final facultadJson = programaJson?['facultades'] as Map<String, dynamic>?;
+
+    final rawNombre = json['nombre'] as String? ?? '';
+    final rawCodigo = json['codigo_estudiantil'] as String?;
+
+    final nombre  = await UniControlRsa.decryptField(rawNombre);
+    final codigo  = rawCodigo != null
+        ? await UniControlRsa.decryptField(rawCodigo)
+        : null;
+
+    return UsuarioModel(
+      id: json['id'] as String,
+      email: json['email'] as String?,
+      nombre: nombre,
+      codigoEstudiantil: codigo,
       programaId: json['programa_id'] as String?,
       programaNombre: programaJson?['nombre'] as String?,
       facultadNombre: facultadJson?['nombre'] as String?,

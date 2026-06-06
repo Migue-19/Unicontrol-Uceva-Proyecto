@@ -81,7 +81,9 @@ const List<_NavItem> _studentItems = [
 ];
 
 const List<_NavItem> _adminItems = [
-  _NavItem('/admin/solicitudes', 'Solicitudes', Icons.rule_folder_outlined),
+  _NavItem('/admin/dashboard', 'Inicio', Icons.home_rounded),
   _NavItem('/admin/estudiantes', 'Estudiantes', Icons.groups_2_outlined),
+  _NavItem('/admin/solicitudes', 'Solicitudes', Icons.rule_folder_outlined),
   _NavItem('/admin/mensajes', 'Mensajes', Icons.markunread_outlined),
+  _NavItem('/admin/perfil', 'Perfil', Icons.person_outline_rounded),
 ];

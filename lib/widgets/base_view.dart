@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:unicontrol_app/services/auth_service.dart';
 import 'package:unicontrol_app/services/supabase_service.dart';
@@ -154,7 +155,7 @@ class _NotificationAction extends StatelessWidget {
           alignment: Alignment.center,
           children: [
             IconButton(
-              onPressed: () {},
+              onPressed: () => context.go('/messages'),
               icon: const Icon(Icons.notifications_none_rounded),
             ),
             if (count > 0)

@@ -13,6 +13,9 @@ import 'package:unicontrol_app/views/dashboard/dashboard_screen.dart';
 import 'package:unicontrol_app/views/messages/messages_screen.dart';
 import 'package:unicontrol_app/views/my_subjects/my_subjects_screen.dart';
 import 'package:unicontrol_app/views/profile/profile_screen.dart';
+import 'package:unicontrol_app/views/admin/admin_dashboard_screen.dart';
+import 'package:unicontrol_app/views/admin/admin_perfil_screen.dart';
+import 'package:unicontrol_app/views/admin/estudiante_detalle_screen.dart';
 
 class AppRouter {
   AppRouter({required this.authService});
@@ -33,9 +36,14 @@ class AppRouter {
       if (loggedIn && needsGoogleCompletion && !isCompletingGoogle) {
         return '/complete-google-registration';
       }
-      if (loggedIn && isAuthRoute) return '/dashboard';
+      if (loggedIn && isAuthRoute) {
+        return authService.isAdmin ? '/admin/dashboard' : '/dashboard';
+      }
       if (loggedIn && location.startsWith('/admin') && !authService.isAdmin) {
         return '/dashboard';
+      }
+      if (loggedIn && authService.isAdmin && ['/dashboard', '/catalog', '/my-subjects', '/cancel-subjects', '/messages', '/profile'].contains(location)) {
+        return '/admin/dashboard';
       }
       return null;
     },
@@ -50,9 +58,21 @@ class AppRouter {
       _build('/cancel-subjects', (_) => const CancelSubjectsScreen()),
       _build('/messages', (_) => const MessagesScreen()),
       _build('/profile', (_) => const ProfileScreen()),
+      _build('/admin/dashboard', (_) => const AdminDashboardScreen()),
       _build('/admin/solicitudes', (_) => const SolicitudesScreen()),
       _build('/admin/estudiantes', (_) => const EstudiantesScreen()),
+      GoRoute(
+        path: '/admin/estudiantes/:id',
+        pageBuilder: (context, state) => CustomTransitionPage<void>(
+          key: state.pageKey,
+          transitionDuration: const Duration(milliseconds: 300),
+          child: EstudianteDetalleScreen(estudianteId: state.pathParameters['id']!),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+              FadeTransition(opacity: animation, child: child),
+        ),
+      ),
       _build('/admin/mensajes', (_) => const MensajesAdminScreen()),
+      _build('/admin/perfil', (_) => const AdminPerfilScreen()),
     ],
   );
 

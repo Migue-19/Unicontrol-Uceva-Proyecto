@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:unicontrol_app/models/mensaje_model.dart';
 import 'package:unicontrol_app/services/auth_service.dart';
@@ -34,9 +35,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
           )
           .or('receptor_id.eq.$userId,emisor_id.eq.$userId')
           .order('created_at', ascending: false);
-      return (response as List<dynamic>)
-          .map((raw) => MensajeModel.fromJson(raw as Map<String, dynamic>))
-          .toList();
+      final futures = (response as List<dynamic>).map(
+          (raw) => MensajeModel.fromJsonDecrypted(raw as Map<String, dynamic>));
+      return await Future.wait(futures);
     } catch (_) {
       try {
         final fallback = await SupabaseService.client
@@ -44,18 +45,23 @@ class _MessagesScreenState extends State<MessagesScreen> {
             .select()
             .or('receptor_id.eq.$userId,emisor_id.eq.$userId')
             .order('created_at', ascending: false);
-        return (fallback as List<dynamic>)
-            .map((raw) => MensajeModel.fromJson(raw as Map<String, dynamic>))
-            .toList();
+        final futures = (fallback as List<dynamic>).map(
+            (raw) => MensajeModel.fromJsonDecrypted(raw as Map<String, dynamic>));
+        return await Future.wait(futures);
       } catch (_) {
         return [];
       }
     }
   }
 
+  // ── CORRECCIÓN: _refresh con mounted guard y manejo de errores ─────────────
   Future<void> _refresh() async {
-    setState(() => _messagesFuture = _loadMessages());
-    await _messagesFuture;
+    if (!mounted) return;
+    final f = _loadMessages();
+    void _upd() { _messagesFuture = f; } setState(_upd);
+    try {
+      await f;
+    } catch (_) {}
   }
 
   Future<void> _markAsRead(MensajeModel mensaje) async {
@@ -65,7 +71,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
           .update({'leido': true}).eq('id', mensaje.id);
       if (mounted) {
         showAppSnackBar(context, 'Mensaje marcado como leído');
-        _refresh();
+        await _refresh();
       }
     } catch (_) {
       if (mounted) {
@@ -75,84 +81,182 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
   }
 
+  // ── NUEVO: Borrar mensaje con confirmación ─────────────────────────────────
+  Future<void> _deleteMessage(MensajeModel mensaje) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Borrar mensaje'),
+        content: const Text(
+            '¿Seguro que quieres eliminar este mensaje? Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await SupabaseService.client
+          .from('mensajes')
+          .delete()
+          .eq('id', mensaje.id);
+      if (mounted) {
+        showAppSnackBar(context, 'Mensaje eliminado');
+        await _refresh();
+      }
+    } catch (_) {
+      if (mounted) {
+        showAppSnackBar(context, 'No se pudo eliminar el mensaje.',
+            isError: true);
+      }
+    }
+  }
+
   Future<void> _openMessage(MensajeModel mensaje) async {
     final replyController = TextEditingController();
+    final isRejection = mensaje.asunto.toLowerCase().contains('solicitud') ||
+        mensaje.mensaje.toLowerCase().contains('rechazada') ||
+        mensaje.mensaje.toLowerCase().contains('rechazadas');
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 16,
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DecoratedBox(
+        decoration: const BoxDecoration(
+          color: Color(0xFFF4FAF6),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 52,
-                height: 5,
-                decoration: BoxDecoration(
-                    color: const Color(0xFFD5E5DA),
-                    borderRadius: BorderRadius.circular(999)),
-              ),
+        child: SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 16,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
             ),
-            const SizedBox(height: 18),
-            Text(mensaje.asunto,
-                style: Theme.of(ctx).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(mensaje.mensaje,
-                style: Theme.of(ctx).textTheme.bodyMedium),
-            const SizedBox(height: 14),
-            Text('Fecha: ${formatShortDate(mensaje.createdAt)}',
-                style: Theme.of(ctx).textTheme.bodySmall),
-            const SizedBox(height: 18),
-            TextField(
-              controller: replyController,
-              minLines: 2,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: 'Responder',
-                prefixIcon: Icon(Icons.reply_outlined),
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    width: 52,
+                    height: 5,
+                    decoration: BoxDecoration(
+                        color: const Color(0xFFD5E5DA),
+                        borderRadius: BorderRadius.circular(999)),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                // ── Header con botón borrar ──────────────────────────────
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(mensaje.asunto,
+                          style: Theme.of(ctx).textTheme.titleLarge),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded,
+                          color: Colors.red),
+                      tooltip: 'Eliminar mensaje',
+                      onPressed: () async {
+                        Navigator.of(ctx).pop();
+                        await _deleteMessage(mensaje);
+                      },
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+                Text(mensaje.mensaje,
+                    style: Theme.of(ctx).textTheme.bodyMedium),
+                const SizedBox(height: 14),
+                Text('Fecha: ${formatShortDate(mensaje.createdAt)}',
+                    style: Theme.of(ctx).textTheme.bodySmall),
+
+                // CTA si hay materias rechazadas
+                if (isRejection) ...[
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      context.go('/catalog');
+                    },
+                    icon: const Icon(Icons.grid_view_rounded),
+                    label: const Text('Ver materias alternativas'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 18),
+                TextField(
+                  controller: replyController,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Responder',
+                    prefixIcon: Icon(Icons.reply_outlined),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                GradientButton(
+                  label: 'Enviar respuesta',
+                  icon: Icons.send_rounded,
+                  onTap: () async {
+                    final userId = context.read<AuthService>().user?.id;
+                    final reply = replyController.text.trim();
+                    if (reply.isEmpty || userId == null) {
+                      showAppSnackBar(
+                          ctx, 'Escribe una respuesta antes de enviar.',
+                          isError: true);
+                      return;
+                    }
+                    try {
+                      await SupabaseService.client.from('mensajes').insert({
+                        'emisor_id': userId,
+                        'receptor_id': mensaje.emisorId,
+                        'asunto': 'Re: ${mensaje.asunto}',
+                        'mensaje': reply,
+                        'parent_id': mensaje.id,
+                      });
+                      if (ctx.mounted) {
+                        Navigator.of(ctx).pop();
+                        showAppSnackBar(context, 'Respuesta enviada');
+                        await _refresh();
+                      }
+                    } catch (_) {
+                      if (ctx.mounted) {
+                        showAppSnackBar(
+                            ctx, 'No fue posible enviar la respuesta.',
+                            isError: true);
+                      }
+                    }
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 14),
-            GradientButton(
-              label: 'Enviar respuesta',
-              icon: Icons.send_rounded,
-              onTap: () async {
-                final userId = context.read<AuthService>().user?.id;
-                final reply = replyController.text.trim();
-                if (reply.isEmpty || userId == null) {
-                  showAppSnackBar(ctx, 'Escribe una respuesta antes de enviar.',
-                      isError: true);
-                  return;
-                }
-                try {
-                  await SupabaseService.client.from('mensajes').insert({
-                    'emisor_id': userId,
-                    'receptor_id': mensaje.emisorId,
-                    'asunto': 'Re: ${mensaje.asunto}',
-                    'mensaje': reply,
-                    'parent_id': mensaje.id,
-                  });
-                  if (ctx.mounted) {
-                    Navigator.of(ctx).pop();
-                    showAppSnackBar(context, 'Respuesta enviada');
-                    _refresh();
-                  }
-                } catch (_) {
-                  if (ctx.mounted) {
-                    showAppSnackBar(ctx, 'No fue posible enviar la respuesta.',
-                        isError: true);
-                  }
-                }
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -197,7 +301,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     index: index,
                     child: Dismissible(
                       key: ValueKey(m.id),
-                      direction: DismissDirection.startToEnd,
+                      // ── Deslizar derecha → marcar leído ─────────────────
                       background: Container(
                         decoration: BoxDecoration(
                           color: const Color(0xFF1B7A3E),
@@ -205,10 +309,93 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         ),
                         alignment: Alignment.centerLeft,
                         padding: const EdgeInsets.symmetric(horizontal: 22),
-                        child:
-                            const Icon(Icons.done_all_rounded, color: Colors.white),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.done_all_rounded, color: Colors.white),
+                            SizedBox(width: 8),
+                            Text('Leído',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        ),
                       ),
-                      onDismissed: (_) => _markAsRead(m),
+                      // ── Deslizar izquierda → borrar ──────────────────────
+                      secondaryBackground: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade600,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.symmetric(horizontal: 22),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text('Borrar',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600)),
+                            SizedBox(width: 8),
+                            Icon(Icons.delete_outline_rounded,
+                                color: Colors.white),
+                          ],
+                        ),
+                      ),
+                      confirmDismiss: (direction) async {
+                        if (direction == DismissDirection.endToStart) {
+                          // Pedir confirmación antes de borrar
+                          return await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(20)),
+                                  title: const Text('Borrar mensaje'),
+                                  content: const Text(
+                                      '¿Seguro que quieres eliminar este mensaje?'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.of(ctx).pop(false),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.of(ctx).pop(true),
+                                      style: TextButton.styleFrom(
+                                          foregroundColor: Colors.red),
+                                      child: const Text('Eliminar'),
+                                    ),
+                                  ],
+                                ),
+                              ) ??
+                              false;
+                        }
+                        // Deslizar derecha siempre confirma (marcar leído)
+                        return true;
+                      },
+                      onDismissed: (direction) {
+                        if (direction == DismissDirection.endToStart) {
+                          // Borrar sin diálogo adicional (ya confirmado)
+                          SupabaseService.client
+                              .from('mensajes')
+                              .delete()
+                              .eq('id', m.id)
+                              .then((_) {
+                            if (mounted) {
+                              showAppSnackBar(context, 'Mensaje eliminado');
+                              _refresh();
+                            }
+                          }).catchError((_) {
+                            if (mounted) {
+                              showAppSnackBar(
+                                  context, 'No se pudo eliminar el mensaje.',
+                                  isError: true);
+                            }
+                          });
+                        } else {
+                          _markAsRead(m);
+                        }
+                      },
                       child: AppCard(
                         child: InkWell(
                           onTap: () => _openMessage(m),

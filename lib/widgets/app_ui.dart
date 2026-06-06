@@ -2,9 +2,14 @@ import 'dart:math' as math;
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:unicontrol_app/services/auth_service.dart';
 import 'package:unicontrol_app/themes/app_theme.dart';
 import 'package:unicontrol_app/widgets/logo_b64.dart';
+import 'package:unicontrol_app/services/supabase_service.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 const String kUcevaLogoUrl =
     'https://www.uceva.edu.co/wp-content/uploads/2023/08/BANDERA-UCEVA.png';
@@ -414,80 +419,277 @@ void showAppSnackBar(
     );
 }
 
+// ── Chatbot ─────────────────────────────────────────────────────────────────
+
+const _webhookUrl =
+    'https://jolmer2004.app.n8n.cloud/webhook/unicontrol-bot';
+
 Future<void> showChatbotSheet(BuildContext context) {
-  final controller = TextEditingController();
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (context) {
-      return Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 16,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 52,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: AppTheme.border,
-                  borderRadius: BorderRadius.circular(999),
+    backgroundColor: Colors.transparent,
+    builder: (context) => const _ChatbotSheet(),
+  );
+}
+
+class _ChatbotSheet extends StatefulWidget {
+  const _ChatbotSheet();
+
+  @override
+  State<_ChatbotSheet> createState() => _ChatbotSheetState();
+}
+
+class _ChatbotSheetState extends State<_ChatbotSheet> {
+  final _controller = TextEditingController();
+  final _scrollController = ScrollController();
+  bool _loading = false;
+
+  final List<Map<String, String>> _messages = [
+    {
+      'role': 'assistant',
+      'content':
+          'Hola, soy el asistente de UniControl. ¿En qué puedo ayudarte?',
+    },
+  ];
+
+  Future<void> _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _loading) return;
+
+    // ── Datos del usuario autenticado ──
+    final userId = SupabaseService.currentUser?.id ?? '';
+    final authService = context.read<AuthService>();
+    final programaId = authService.profile?.programaId ?? '';
+    final programaNombre = authService.profile?.programaNombre ?? '';
+
+    setState(() {
+      _messages.add({'role': 'user', 'content': text});
+      _loading = true;
+      _controller.clear();
+    });
+    _scrollToBottom();
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse(_webhookUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'message': text,
+              'user_id': userId,
+              'programa_id': programaId,
+              'programa_nombre': programaNombre,
+              'history': _messages
+                  .map((m) => {'role': m['role'], 'content': m['content']})
+                  .toList(),
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final reply =
+            data['reply'] ?? 'No obtuve respuesta, intenta de nuevo.';
+        setState(
+            () => _messages.add({'role': 'assistant', 'content': reply}));
+      } else {
+        setState(() => _messages.add({
+              'role': 'assistant',
+              'content': 'Error del servidor. Intenta más tarde.',
+            }));
+      }
+    } catch (e) {
+      setState(() => _messages.add({
+            'role': 'assistant',
+            'content':
+                'Sin conexión. Verifica tu internet e intenta de nuevo.',
+          }));
+    } finally {
+      setState(() => _loading = false);
+      _scrollToBottom();
+    }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      margin: EdgeInsets.only(bottom: bottom),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          // Handle
+          const SizedBox(height: 12),
+          Center(
+            child: Container(
+              width: 52,
+              height: 5,
+              decoration: BoxDecoration(
+                color: AppTheme.border,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                const Icon(Icons.smart_toy_outlined,
+                    color: AppTheme.primary, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Asistente UniControl',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-              ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 20),
+                  tooltip: 'Limpiar chat',
+                  onPressed: () => setState(() {
+                    _messages.clear();
+                    _messages.add({
+                      'role': 'assistant',
+                      'content':
+                          'Hola, soy el asistente de UniControl. ¿En qué puedo ayudarte?',
+                    });
+                  }),
+                ),
+              ],
             ),
-            const SizedBox(height: 18),
-            Text(
-              'Asistente UniControl',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Pregunta por horarios, inscripciones o mensajes institucionales.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 18),
-            const AppCard(
-              child: Text(
-                'Hola, puedo ayudarte a navegar tu carga academica y resolver dudas rapidas del sistema.',
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: controller,
-              maxLines: 3,
-              minLines: 1,
-              decoration: const InputDecoration(
-                hintText: 'Escribe tu mensaje',
-                prefixIcon: Icon(Icons.smart_toy_outlined),
-              ),
-            ),
-            const SizedBox(height: 14),
-            GradientButton(
-              label: 'Enviar consulta',
-              icon: Icons.send_rounded,
-              onTap: () {
-                Navigator.of(context).pop();
-                showAppSnackBar(
-                  context,
-                  controller.text.trim().isEmpty
-                      ? 'Escribe una consulta para iniciar el chat.'
-                      : 'Tu consulta fue enviada al asistente.',
-                  isError: controller.text.trim().isEmpty,
+          ),
+          const Divider(height: 1),
+          // Mensajes
+          Expanded(
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: _messages.length,
+              itemBuilder: (ctx, i) {
+                final msg = _messages[i];
+                final isUser = msg['role'] == 'user';
+                return Align(
+                  alignment:
+                      isUser ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.75,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isUser
+                          ? AppTheme.primary
+                          : AppTheme.primary.withValues(alpha: 0.07),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: isUser
+                        ? Text(
+                            msg['content']!,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 14),
+                          )
+                        : MarkdownBody(
+                            data: msg['content']!,
+                            styleSheet: MarkdownStyleSheet(
+                              p: const TextStyle(
+                                  fontSize: 14, color: AppTheme.foreground),
+                            ),
+                          ),
+                  ),
                 );
               },
             ),
-          ],
-        ),
-      );
-    },
-  );
+          ),
+          // Indicador escribiendo
+          if (_loading)
+            Padding(
+              padding: const EdgeInsets.only(left: 20, bottom: 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.smart_toy_outlined,
+                      size: 14, color: AppTheme.primary),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Escribiendo...',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: AppTheme.mutedForeground),
+                  ),
+                ],
+              ),
+            ),
+          // Input
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    onSubmitted: (_) => _send(),
+                    enabled: !_loading,
+                    decoration: const InputDecoration(
+                      hintText: 'Escribe tu pregunta...',
+                      prefixIcon: Icon(Icons.smart_toy_outlined),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _loading ? null : _send,
+                  style: IconButton.styleFrom(
+                      backgroundColor: AppTheme.primary),
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded,
+                          color: Colors.white, size: 18),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+// ── Utilidades y widgets restantes ──────────────────────────────────────────
 
 class HoverScaleCard extends StatefulWidget {
   const HoverScaleCard({

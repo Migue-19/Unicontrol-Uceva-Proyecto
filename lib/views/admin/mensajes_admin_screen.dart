@@ -24,8 +24,9 @@ class _MensajesAdminScreenState extends State<MensajesAdminScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _messagesFuture = _adminService.fetchMensajesAdmin());
-    await _messagesFuture;
+    final f = _adminService.fetchMensajesAdmin();
+    void _upd() { _messagesFuture = f; } setState(_upd);
+    await f;
   }
 
   Future<void> _openComposer() async {
